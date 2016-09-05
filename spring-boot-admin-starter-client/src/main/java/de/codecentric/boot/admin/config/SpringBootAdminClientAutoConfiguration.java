@@ -16,13 +16,17 @@
 package de.codecentric.boot.admin.config;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 import de.codecentric.boot.admin.services.ApplicationRegistrator;
 import de.codecentric.boot.admin.services.RegistrationApplicationListener;
@@ -48,11 +52,22 @@ public class SpringBootAdminClientAutoConfiguration {
 	@ConditionalOnMissingBean
 	public ApplicationRegistrator registrator() {
 		RestTemplateBuilder builder = restTemplBuilder
-				.messageConverters(new MappingJackson2HttpMessageConverter());
+				.messageConverters(new MappingJackson2HttpMessageConverter())
+				.requestFactory(SimpleClientHttpRequestFactory.class);
 		if (admin.getUsername() != null) {
 			builder = builder.basicAuthorization(admin.getUsername(), admin.getPassword());
 		}
 		return new ApplicationRegistrator(builder.build(), admin, client);
+	}
+
+	@Bean
+	@Qualifier("registrationTaskScheduler")
+	public TaskScheduler registrationTaskScheduler() {
+		ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
+		taskScheduler.setPoolSize(1);
+		taskScheduler.setRemoveOnCancelPolicy(true);
+		taskScheduler.setThreadNamePrefix("registrationTask");
+		return taskScheduler;
 	}
 
 	/**
@@ -62,7 +77,7 @@ public class SpringBootAdminClientAutoConfiguration {
 	@ConditionalOnMissingBean
 	public RegistrationApplicationListener registrationListener() {
 		RegistrationApplicationListener listener = new RegistrationApplicationListener(
-				registrator());
+				registrator(), registrationTaskScheduler());
 		listener.setAutoRegister(admin.isAutoRegistration());
 		listener.setAutoDeregister(admin.isAutoDeregistration());
 		listener.setRegisterPeriod(admin.getPeriod());
